@@ -1,0 +1,485 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Run Wind Optimizer</title>
+    
+    <!-- Tailwind CSS for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    
+    <!-- Leaflet.js for mapping -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    
+    <!-- GPX Parser -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/gpx-parser-js/1.1.1/gpx-parser.min.js"></script>
+
+    <style>
+        /* Custom styles for better UX */
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        /* Ensure map has a defined height */
+        #map {
+            height: 400px;
+            border-radius: 0.5rem;
+            background-color: #4b5563; /* A neutral dark color for the map background */
+        }
+        /* Custom file input styling */
+        .file-input-label {
+            cursor: pointer;
+            transition: background-color 0.2s ease-in-out;
+        }
+        .file-input-label:hover {
+            background-color: #374151;
+        }
+        /* Simple animation for the result panel */
+        #result-panel {
+            opacity: 0;
+            transform: translateY(20px);
+            transition: opacity 0.5s ease-out, transform 0.5s ease-out;
+        }
+        #result-panel.visible {
+            opacity: 1;
+            transform: translateY(0);
+        }
+        /* Style for the wind arrow icon */
+        .wind-arrow-icon {
+            color: #fde047; /* yellow-300 */
+            font-size: 3rem;
+            text-shadow: 0 0 5px rgba(0,0,0,0.7);
+        }
+    </style>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;700&display=swap" rel="stylesheet">
+</head>
+<body class="bg-gray-900 text-gray-200">
+
+    <div class="container mx-auto p-4 md:p-8">
+        
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-white">Run Wind Optimizer</h1>
+            <p class="text-lg text-gray-400 mt-2">Get a smart recommendation for your run based on the wind.</p>
+        </header>
+
+        <!-- Main Content Grid -->
+        <div class="grid grid-cols-1 lg:grid-cols-2 gap-8">
+            
+            <!-- Left Column: Inputs -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg space-y-6">
+                <!-- Step 1: Upload GPX -->
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-3">1. Upload Route</h2>
+                    <label for="gpx-file" class="file-input-label w-full flex items-center justify-center px-4 py-6 bg-gray-700 text-gray-300 rounded-lg border-2 border-dashed border-gray-500">
+                        <svg class="w-8 h-8 mr-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-4-4V6a4 4 0 014-4h4l3 3h6a4 4 0 014 4v8a4 4 0 01-4 4H7z"></path></svg>
+                        <span id="file-name-display">Click to upload a .GPX file</span>
+                    </label>
+                    <input type="file" id="gpx-file" class="hidden" accept=".gpx">
+                </div>
+
+                <!-- Step 2: Define Workout -->
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-3">2. Define Workout</h2>
+                    <div id="workout-segments" class="space-y-3">
+                        <!-- Workout segments will be added here dynamically -->
+                    </div>
+                    <button id="add-segment-btn" class="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded-lg transition duration-300">
+                        + Add Workout Segment
+                    </button>
+                </div>
+
+                <!-- Step 3: Analyze -->
+                <div>
+                    <h2 class="text-2xl font-bold text-white mb-3">3. Get Recommendation</h2>
+                     <div class="bg-gray-900 p-4 rounded-lg mb-4">
+                        <label for="api-key" class="block text-sm font-medium text-gray-300 mb-1">OpenWeatherMap API Key</label>
+                        <input type="text" id="api-key" class="w-full bg-gray-700 border border-gray-600 rounded-md px-3 py-2 text-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-indigo-500" placeholder="Enter your free API key here">
+                    </div>
+                    <button id="analyze-btn" class="w-full bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg text-lg transition duration-300 disabled:bg-gray-500 disabled:cursor-not-allowed" disabled>
+                        Analyze My Run
+                    </button>
+                </div>
+            </div>
+
+            <!-- Right Column: Output -->
+            <div class="bg-gray-800 p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-bold text-white mb-4">Analysis & Recommendation</h2>
+                <div id="result-panel" class="space-y-4">
+                    <div id="recommendation-box" class="hidden text-center p-6 bg-gray-700 rounded-lg">
+                        <h3 id="recommendation-text" class="text-3xl font-bold"></h3>
+                        <p id="explanation-text" class="text-gray-300 mt-2"></p>
+                    </div>
+                    <div id="map"></div>
+                     <div id="initial-message" class="text-center text-gray-400 py-16">
+                        <p>Your route map and recommendation will appear here.</p>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const gpxFileInput = document.getElementById('gpx-file');
+        const fileNameDisplay = document.getElementById('file-name-display');
+        const addSegmentBtn = document.getElementById('add-segment-btn');
+        const workoutSegmentsContainer = document.getElementById('workout-segments');
+        const analyzeBtn = document.getElementById('analyze-btn');
+        const apiKeyInput = document.getElementById('api-key');
+        const resultPanel = document.getElementById('result-panel');
+        const recommendationBox = document.getElementById('recommendation-box');
+        const recommendationText = document.getElementById('recommendation-text');
+        const explanationText = document.getElementById('explanation-text');
+        const mapContainer = document.getElementById('map');
+        const initialMessage = document.getElementById('initial-message');
+
+        // --- App State ---
+        let gpxData = null;
+        let map;
+        let routePolyline = null;
+        let windMarker = null;
+
+        // --- Initialization ---
+        function initializeApp() {
+            map = L.map('map').setView([51.1333, 4.9833], 13); // Centered on Meerhout, Belgium
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
+            }).addTo(map);
+            addWorkoutSegment();
+        }
+
+        // --- UI Logic ---
+        function addWorkoutSegment() {
+            const segmentId = `segment-${Date.now()}`;
+            const segmentHTML = `
+                <div id="${segmentId}" class="grid grid-cols-1 md:grid-cols-4 gap-2 items-center bg-gray-700 p-3 rounded-lg workout-segment-row">
+                    <select class="segment-type w-full bg-gray-600 border-gray-500 rounded-md p-2 focus:ring-indigo-500 focus:border-indigo-500">
+                        <option value="warmup">Warm-up</option>
+                        <option value="interval" selected>Interval</option>
+                        <option value="recovery">Recovery</option>
+                        <option value="cooldown">Cool-down</option>
+                    </select>
+                    <input type="number" class="segment-duration w-full bg-gray-600 border-gray-500 rounded-md p-2" placeholder="Duration (min)" min="1">
+                    <input type="text" class="segment-pace w-full bg-gray-600 border-gray-500 rounded-md p-2" placeholder="Pace (e.g., 5:30)">
+                    <button onclick="removeSegment('${segmentId}')" class="text-red-500 hover:text-red-400 justify-self-end pr-2">&times; Remove</button>
+                </div>
+            `;
+            workoutSegmentsContainer.insertAdjacentHTML('beforeend', segmentHTML);
+        }
+
+        function removeSegment(segmentId) {
+            document.getElementById(segmentId).remove();
+            updateAnalyzeButtonState();
+        }
+        
+        function updateAnalyzeButtonState() {
+            const hasFile = gpxData !== null;
+            const hasApiKey = apiKeyInput.value.trim() !== '';
+            const workoutRows = document.querySelectorAll('.workout-segment-row');
+            let hasWorkout = false;
+            if (workoutRows.length > 0) {
+                hasWorkout = Array.from(workoutRows).some(row => {
+                    const duration = row.querySelector('.segment-duration').value;
+                    const pace = row.querySelector('.segment-pace').value;
+                    return duration && pace;
+                });
+            }
+
+            analyzeBtn.disabled = !(hasFile && hasApiKey && hasWorkout);
+        }
+
+        // --- Event Listeners ---
+        gpxFileInput.addEventListener('change', (event) => {
+            const file = event.target.files[0];
+            if (file && file.name.endsWith('.gpx')) {
+                fileNameDisplay.textContent = file.name;
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    try {
+                        const gpxParser = new gpxParser();
+                        gpxParser.parse(e.target.result);
+                        if (!gpxParser.tracks || gpxParser.tracks.length === 0) {
+                            throw new Error("GPX file does not contain any tracks.");
+                        }
+                        gpxData = gpxParser;
+                        drawRouteOnMap(gpxData.tracks[0].points);
+                        updateAnalyzeButtonState();
+                    } catch (error) {
+                        fileNameDisplay.textContent = 'Error parsing GPX file.';
+                        console.error(error);
+                        gpxData = null;
+                        updateAnalyzeButtonState();
+                    }
+                };
+                reader.readAsText(file);
+            } else {
+                fileNameDisplay.textContent = 'Invalid file. Please upload .GPX';
+                gpxData = null;
+                updateAnalyzeButtonState();
+            }
+        });
+        
+        addSegmentBtn.addEventListener('click', addWorkoutSegment);
+        
+        document.body.addEventListener('input', (e) => {
+            if (e.target.id === 'api-key' || e.target.classList.contains('segment-duration') || e.target.classList.contains('segment-pace')) {
+                updateAnalyzeButtonState();
+            }
+        });
+
+        analyzeBtn.addEventListener('click', async () => {
+            analyzeBtn.disabled = true;
+            analyzeBtn.textContent = 'Analyzing...';
+            
+            try {
+                // 1. Collect workout data
+                const workoutSegments = Array.from(document.querySelectorAll('.workout-segment-row')).map(row => {
+                    return {
+                        type: row.querySelector('.segment-type').value,
+                        duration: parseFloat(row.querySelector('.segment-duration').value), // in minutes
+                        pace: parsePace(row.querySelector('.segment-pace').value) // in seconds per km
+                    };
+                }).filter(s => s.duration && s.pace); // Filter out invalid segments
+
+                if (workoutSegments.length === 0) {
+                    throw new Error("Please define at least one valid workout segment.");
+                }
+
+                // 2. Fetch wind data
+                const apiKey = apiKeyInput.value.trim();
+                const startPoint = gpxData.tracks[0].points[0];
+                const weatherApiUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${startPoint.lat}&lon=${startPoint.lon}&appid=${apiKey}&units=metric`;
+                
+                const response = await fetch(weatherApiUrl);
+                if (!response.ok) {
+                    throw new Error(`Could not fetch weather data. Status: ${response.status}`);
+                }
+                const weatherData = await response.json();
+                const wind = {
+                    speed: weatherData.wind.speed * 3.6, // m/s to km/h
+                    deg: weatherData.wind.deg
+                };
+
+                // 3. Run the analysis
+                const routePoints = gpxData.tracks[0].points;
+                const analysisResult = analyzeRoute(routePoints, workoutSegments, wind);
+
+                // 4. Display results
+                displayResults(analysisResult, wind);
+
+            } catch (error) {
+                console.error("Analysis failed:", error);
+                recommendationBox.style.display = 'block';
+                recommendationText.textContent = "Analysis Failed";
+                recommendationText.className = "text-3xl font-bold text-red-400";
+                explanationText.textContent = error.message;
+            } finally {
+                analyzeBtn.disabled = false;
+                analyzeBtn.textContent = 'Analyze My Run';
+                updateAnalyzeButtonState();
+            }
+        });
+
+        // --- Core Logic ---
+
+        /**
+         * Parses a pace string "mm:ss" into total seconds per kilometer.
+         * @param {string} paceString - The pace in "mm:ss" format.
+         * @returns {number|null} Total seconds per km or null if invalid.
+         */
+        function parsePace(paceString) {
+            const parts = paceString.split(':');
+            if (parts.length !== 2) return null;
+            const minutes = parseInt(parts[0], 10);
+            const seconds = parseInt(parts[1], 10);
+            if (isNaN(minutes) || isNaN(seconds)) return null;
+            return minutes * 60 + seconds;
+        }
+
+        /**
+         * Calculates the Haversine distance between two points in kilometers.
+         * @param {{lat: number, lon: number}} p1 - First point.
+         * @param {{lat: number, lon: number}} p2 - Second point.
+         * @returns {number} Distance in kilometers.
+         */
+        function haversineDistance(p1, p2) {
+            const R = 6371; // Radius of the Earth in km
+            const dLat = (p2.lat - p1.lat) * Math.PI / 180;
+            const dLon = (p2.lon - p1.lon) * Math.PI / 180;
+            const a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                      Math.cos(p1.lat * Math.PI / 180) * Math.cos(p2.lat * Math.PI / 180) *
+                      Math.sin(dLon / 2) * Math.sin(dLon / 2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+            return R * c;
+        }
+
+        /**
+         * Calculates the initial bearing from point 1 to point 2 in degrees.
+         * @param {{lat: number, lon: number}} p1 - First point.
+         * @param {{lat: number, lon: number}} p2 - Second point.
+         * @returns {number} Bearing in degrees (0-360).
+         */
+        function calculateBearing(p1, p2) {
+            const toRadians = (deg) => deg * Math.PI / 180;
+            const toDegrees = (rad) => rad * 180 / Math.PI;
+            const lat1 = toRadians(p1.lat);
+            const lon1 = toRadians(p1.lon);
+            const lat2 = toRadians(p2.lat);
+            const lon2 = toRadians(p2.lon);
+
+            const y = Math.sin(lon2 - lon1) * Math.cos(lat2);
+            const x = Math.cos(lat1) * Math.sin(lat2) - Math.sin(lat1) * Math.cos(lat2) * Math.cos(lon2 - lon1);
+            let brng = toDegrees(Math.atan2(y, x));
+            return (brng + 360) % 360;
+        }
+        
+        /**
+         * Calculates a "difficulty" score based on the difference between run and wind direction.
+         * @param {number} runBearing - The direction the runner is going.
+         * @param {number} windBearing - The direction the wind is coming from.
+         * @returns {number} A score from -1 (tailwind) to 1 (headwind).
+         */
+        function getWindEffect(runBearing, windBearing) {
+            const angleDiff = Math.abs(runBearing - windBearing);
+            const effectiveAngle = Math.min(angleDiff, 360 - angleDiff);
+            // We use cosine: cos(0) = 1 (headwind), cos(90) = 0 (crosswind), cos(180) = -1 (tailwind)
+            // We need to adjust because wind direction is where it's FROM, running is where it's TO.
+            // A headwind is when runBearing is opposite to windBearing (diff is 180).
+            const headwindAngle = Math.abs(180 - effectiveAngle);
+            return Math.cos(headwindAngle * Math.PI / 180);
+        }
+
+        /**
+         * Pre-calculates cumulative distances and bearings for a route.
+         * @param {Array} points - Array of {lat, lon} points.
+         * @returns {Array} Array of objects with point, cumulative distance, and bearing to next point.
+         */
+        function processRoute(points) {
+            let cumulativeDistance = 0;
+            const processed = points.map((point, i) => {
+                let distance = 0;
+                let bearing = null;
+                if (i > 0) {
+                    distance = haversineDistance(points[i - 1], point);
+                    bearing = calculateBearing(points[i - 1], point);
+                }
+                cumulativeDistance += distance;
+                return { point, cumulativeDistance, bearing };
+            });
+            return processed;
+        }
+
+        /**
+         * The main analysis function.
+         * @param {Array} routePoints - The raw points from the GPX file.
+         * @param {Array} workoutSegments - The user-defined workout.
+         * @param {{speed: number, deg: number}} wind - The wind data.
+         * @returns {{direction: string, reason: string}} The final recommendation.
+         */
+        function analyzeRoute(routePoints, workoutSegments, wind) {
+            const directions = {
+                Clockwise: processRoute(routePoints),
+                'Counter-Clockwise': processRoute([...routePoints].reverse())
+            };
+
+            let scores = { Clockwise: 0, 'Counter-Clockwise': 0 };
+
+            for (const [direction, processedRoute] of Object.entries(directions)) {
+                let currentDistance = 0;
+                let totalDifficultyScore = 0;
+
+                for (const segment of workoutSegments) {
+                    const segmentDistance = (segment.duration * 60) / segment.pace; // in km
+                    const endDistance = currentDistance + segmentDistance;
+
+                    // We only care about "hard" segments for the score
+                    if (segment.type === 'interval') {
+                        let segmentWindEffect = 0;
+                        let pointsInSegment = 0;
+
+                        // Find all route points within this workout segment's distance
+                        for (const routePoint of processedRoute) {
+                            if (routePoint.cumulativeDistance > currentDistance && routePoint.cumulativeDistance <= endDistance) {
+                                if (routePoint.bearing !== null) {
+                                    segmentWindEffect += getWindEffect(routePoint.bearing, wind.deg);
+                                    pointsInSegment++;
+                                }
+                            }
+                        }
+                        
+                        // Average the effect over the segment
+                        if(pointsInSegment > 0) {
+                            const avgEffect = segmentWindEffect / pointsInSegment;
+                            // Weight the score by segment distance and wind speed
+                            totalDifficultyScore += avgEffect * segmentDistance * wind.speed;
+                        }
+                    }
+                    currentDistance = endDistance;
+                }
+                scores[direction] = totalDifficultyScore;
+            }
+
+            // Determine the best direction
+            if (scores.Clockwise < scores['Counter-Clockwise']) {
+                return { direction: "Clockwise", reason: "This direction minimizes headwinds during your hard intervals." };
+            } else if (scores['Counter-Clockwise'] < scores.Clockwise) {
+                return { direction: "Counter-Clockwise", reason: "This direction provides more favorable winds during your hard intervals." };
+            } else {
+                return { direction: "Either Way", reason: "The wind conditions have a similar impact in both directions." };
+            }
+        }
+
+        // --- Display Logic ---
+        function drawRouteOnMap(points) {
+            if (!map || !points || points.length === 0) return;
+            
+            if(routePolyline) {
+                map.removeLayer(routePolyline);
+            }
+
+            const latlngs = points.map(p => [p.lat, p.lon]);
+            routePolyline = L.polyline(latlngs, { color: 'cyan' }).addTo(map);
+            
+            map.fitBounds(routePolyline.getBounds());
+            
+            initialMessage.style.display = 'none';
+            mapContainer.style.opacity = 1;
+        }
+
+        function displayResults(result, wind) {
+            resultPanel.classList.add('visible');
+            recommendationBox.style.display = 'block';
+            
+            recommendationText.textContent = `Run ${result.direction}`;
+            explanationText.textContent = `${result.reason} (Wind: ${wind.speed.toFixed(1)} km/h from ${wind.deg}°).`;
+
+            if(result.direction === 'Clockwise') {
+                recommendationText.className = "text-3xl font-bold text-green-400";
+            } else if (result.direction === 'Counter-Clockwise') {
+                recommendationText.className = "text-3xl font-bold text-blue-400";
+            } else {
+                recommendationText.className = "text-3xl font-bold text-yellow-400";
+            }
+
+            // Add wind arrow to map
+            if (windMarker) {
+                map.removeLayer(windMarker);
+            }
+            const windIcon = L.divIcon({
+                className: 'wind-arrow-icon',
+                html: `<div style="transform: rotate(${wind.deg}deg); transform-origin: center;">⬆️</div>`,
+                iconSize: [48, 48]
+            });
+            windMarker = L.marker(map.getCenter(), { icon: windIcon }).addTo(map);
+        }
+
+        // --- Run on page load ---
+        document.addEventListener('DOMContentLoaded', initializeApp);
+
+    </script>
+</body>
+</html>
